@@ -32,3 +32,5 @@ while True:
     print(json.dumps(data))
 
     time.sleep(1)
+
+# passes into logger to check for packet timeout

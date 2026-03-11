@@ -10,6 +10,23 @@ How to run:
 4. Should get some connection message and then data message
 5. csv file will be created in logs/ folder with timestamp in name
 
+To be implemented:
+Pixhawk GPS data:
+GPS_LAT
+GPS_LONG
+ALTITUDE
+HEADING
+GROUND_SPEED
+
+AI camera:
+vision_fire_flag
+vision_confidence
+
+Fusion result:
+final_fire_flag
+final_confidence
+
+
 """
 
 import serial
@@ -21,7 +38,8 @@ from datetime import datetime
 
 SERIAL_PORT = "/dev/ttyACM0"
 BAUD_RATE = 115200
-PACKET_TIMEOUT = 3
+PACKET_TIMEOUT = 5
+STM_TIMEOUT = 5 #per THWS team
 
 # Create log folder
 os.makedirs("logs", exist_ok=True)
@@ -59,6 +77,11 @@ with open(filename, "w", newline="") as f:
                 # WATCHDOG CHECK
                 if time.time() - last_packet_time > PACKET_TIMEOUT:
                     print("[WARN] STM32 may be frozen (no packets)")
+                    last_packet_time = time.time()
+                
+                # STM32 ALIVE CHECK
+                if time.time() - last_packet_time > STM_TIMEOUT:
+                    print("[WARN] STM32 may be frozen (no alive signal)")
                     last_packet_time = time.time()
 
                 if not line:
