@@ -1,45 +1,24 @@
 """
-Simple Serial Logger
+Serial Logger (CSV parser version)
 Capstone Team 8 Forest Fire Detection Drone
 Author: Mallorie Wiggins
 
-How to run:
-1. have pip install pyserial
-2. check stm32 port and update SERIAL_PORT variable if needed
-3. run python3 logger.py
-4. Should get some connection message and then data message
-5. csv file will be created in logs/ folder with timestamp in name
-
-To be implemented:
-Pixhawk GPS data:
-GPS_LAT
-GPS_LONG
-ALTITUDE
-HEADING
-GROUND_SPEED
-
-AI camera:
-vision_fire_flag
-vision_confidence
-
-Fusion result:
-final_fire_flag
-final_confidence
-
-
+Reads STM32 UART output (CSV format like BMV080,... and BME690_BSEC,...)
+***Had to update because they are using csv instead of json like discussed
+minicom -b 115200 -D /dev/ttyAMA0 run this on the pi to see raw output from STM32
 """
 
 import serial
-import json
 import time
 import csv
 import os
 from datetime import datetime
 
-SERIAL_PORT = "/dev/ttyACM0"
+SERIAL_PORT = "/dev/ttyAMA0"
 BAUD_RATE = 115200
+
 PACKET_TIMEOUT = 5
-STM_TIMEOUT = 5 #per THWS team
+STM_TIMEOUT = 10
 
 # Create log folder
 os.makedirs("logs", exist_ok=True)
@@ -72,44 +51,68 @@ with open(filename, "w", newline="") as f:
 
             while True:
 
-                line = ser.readline().decode("utf-8").strip()
+                line = ser.readline().decode("utf-8", errors="ignore").strip()
 
                 # WATCHDOG CHECK
                 if time.time() - last_packet_time > PACKET_TIMEOUT:
-                    print("[WARN] STM32 may be frozen (no packets)")
-                    last_packet_time = time.time()
-                
-                # STM32 ALIVE CHECK
-                if time.time() - last_packet_time > STM_TIMEOUT:
-                    print("[WARN] STM32 may be frozen (no alive signal)")
+                    print("[WARN] No data received recently")
                     last_packet_time = time.time()
 
                 if not line:
                     continue
 
-                try:
-                    data = json.loads(line)
+                print("[RAW]", line)
 
-                    last_packet_time = time.time()
+                try:
+                    parts = line.split(",")
+
+                    # Safety check
+                    if len(parts) < 5:
+                        print("[WARN] Incomplete packet:", line)
+                        continue
 
                     system_time = datetime.now().isoformat()
 
+                    # Default values
+                    stm32_time = ""
+                    gas_resistance_raw = ""
+                    pm_concentration = ""
+                    stm_alive = 1
+                    fire_flag = ""
+                    confidence = ""
+
+                    # Parse DATA packet
+                    if parts[0] == "DATA":
+                        gas_resistance_raw = float(parts[1])
+                        pm_concentration = float(parts[2])
+                        fire_flag = int(parts[3])
+                        confidence = float(parts[4])
+
+                        print("[DATA]", gas_resistance_raw, pm_concentration, fire_flag, confidence)
+
+                    else:
+                        print("[INFO] Unknown packet:", line)
+                        continue
+
+                    # Update last packet time
+                    last_packet_time = time.time()
+
+                    # Write to CSV
                     writer.writerow([
                         system_time,
-                        data.get("stm32_time", ""),
-                        data.get("gas_resistance_raw", ""),
-                        data.get("pm_concentration", ""),
-                        data.get("stm_alive", ""),
-                        data.get("fire_flag", ""),
-                        data.get("confidence", "")
+                        stm32_time,
+                        gas_resistance_raw,
+                        pm_concentration,
+                        stm_alive,
+                        fire_flag,
+                        confidence
                     ])
 
                     f.flush()
 
-                    print("[DATA]", line)
-
-                except:
-                    print("[WARN] Bad JSON:", line)
+                except Exception as e:
+                    print("[WARN] Parse error:", line)
+                    print("       ", e)
 
     except KeyboardInterrupt:
         print("\n[INFO] Logger stopped")

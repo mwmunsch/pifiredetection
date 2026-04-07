@@ -1,7 +1,7 @@
 import serial
 
 # Open serial port (adjust device and baud rate as needed)
-ser = serial.Serial('/dev/serial0', baudrate=115200, timeout=1)
+ser = serial.Serial('/dev/ttyAMA0', baudrate=115200, timeout=1)
 
 try:
     # Read up to 32 bytes
