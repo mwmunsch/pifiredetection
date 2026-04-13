@@ -1,26 +1,37 @@
 from picamera2 import Picamera2
-from inference_sdk import InferenceHTTPClient
 import time
+import cv2
+import requests
 
+API_KEY = "REPLACE_WITH_NEW_ROTATED_KEY"
+
+# Your model endpoint
+MODEL_URL = "https://detect.roboflow.com/find-fires/1"
+
+# Setup camera
 picam2 = Picamera2()
-picam2.configure(picam2.create_still_configuration())
 picam2.start()
-time.sleep(2)
 
-image_path = "test_fire.jpg"
-picam2.capture_file(image_path)
-picam2.stop()
+print("Fire detection running...")
 
-client = InferenceHTTPClient(
-    api_url="https://detect.roboflow.com",
-    api_key="REPLACE_WITH_NEW_ROTATED_KEY"
-)
+while True:
+    # Capture image
+    frame = picam2.capture_array()
+    cv2.imwrite("frame.jpg", frame)
 
-result = client.run_workflow(
-    workspace_name="mallories-workspace",
-    workflow_id="find-fires",
-    images={"image": image_path},
-    use_cache=False
-)
+    # Send to Roboflow
+    with open("frame.jpg", "rb") as f:
+        response = requests.post(
+            MODEL_URL,
+            params={"api_key": API_KEY},
+            files={"file": f}
+        )
 
-print(result)
+    result = response.json()
+    print(result)
+
+    # Check for fire
+    if "predictions" in result and len(result["predictions"]) > 0:
+        print("🔥 FIRE DETECTED 🔥")
+
+    time.sleep(3)
