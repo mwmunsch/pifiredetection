@@ -20,10 +20,8 @@ BAUD_RATE = 115200
 PACKET_TIMEOUT = 5
 STM_TIMEOUT = 10
 
-# Create log folder
 os.makedirs("logs", exist_ok=True)
 
-# Create file name
 filename = f"logs/sensor_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
 
 print("[INFO] Logging to", filename)
@@ -48,12 +46,13 @@ with open(filename, "w", newline="") as f:
             print("[INFO] Connected to STM32")
 
             last_packet_time = time.time()
+            gas_resistance_raw = None
+            pm_concentration = None
 
             while True:
 
                 line = ser.readline().decode("utf-8", errors="ignore").strip()
 
-                # WATCHDOG CHECK
                 if time.time() - last_packet_time > PACKET_TIMEOUT:
                     print("[WARN] No data received recently")
                     last_packet_time = time.time()
@@ -66,38 +65,37 @@ with open(filename, "w", newline="") as f:
                 try:
                     parts = line.split(",")
 
-                    # Safety check
                     if len(parts) < 5:
                         print("[WARN] Incomplete packet:", line)
                         continue
 
                     system_time = datetime.now().isoformat()
 
-                    # Default values
                     stm32_time = ""
-                    gas_resistance_raw = ""
-                    pm_concentration = ""
                     stm_alive = 1
                     fire_flag = ""
                     confidence = ""
 
-                    # Parse DATA packet
-                    if parts[0] == "DATA":
-                        gas_resistance_raw = float(parts[1])
-                        pm_concentration = float(parts[2])
-                        fire_flag = int(parts[3])
-                        confidence = float(parts[4])
+                    if parts[0] == "BME690_BSEC":
+                        gas_resistance_raw = float(parts[9])
+                        print("[BME690] Gas:", gas_resistance_raw)
 
-                        print("[DATA]", gas_resistance_raw, pm_concentration, fire_flag, confidence)
-
+                    elif parts[0] == "BMV080":
+                        pm_concentration = float(parts[3])
+                        print("[BMV080] PM2.5:", pm_concentration)
+                    
                     else:
-                        print("[INFO] Unknown packet:", line)
+                        print("[WARN] Unknown packet type:", parts[0])
                         continue
 
-                    # Update last packet time
                     last_packet_time = time.time()
 
-                    # Write to CSV
+                    if gas_resistance_raw is None or pm_concentration is None:
+                        continue
+
+                    fire_flag = 1 if (pm_concentration > 10 and gas_resistance_raw < 80000) else 0
+                    confidence = min(100, (pm_concentration / 20) * 100)
+
                     writer.writerow([
                         system_time,
                         stm32_time,
@@ -110,9 +108,13 @@ with open(filename, "w", newline="") as f:
 
                     f.flush()
 
+                    gas_resistance_raw = None
+                    pm_concentration = None
+
                 except Exception as e:
                     print("[WARN] Parse error:", line)
                     print("       ", e)
 
     except KeyboardInterrupt:
         print("\n[INFO] Logger stopped")
+
