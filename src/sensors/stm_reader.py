@@ -21,6 +21,8 @@ class STM32Reader:
         try:
             line = self.ser.readline().decode(errors="ignore").strip()
 
+            print("[STM RAW]", line)
+
             if not line:
                 return self.data
 
