@@ -3,25 +3,24 @@ import numpy as np
 
 class FireDetector:
     def __init__(self):
-        self.cap = cv2.VideoCapture(0)  # Pi camera
+        self.cap = cv2.VideoCapture(0)
         self.prev_gray = None
 
     def detect(self):
         ret, frame = self.cap.read()
         if not ret:
-            return 0, 0
+            return 0, 0, None
 
-        # Resize for speed
         frame = cv2.resize(frame, (320, 240))
+        display = frame.copy()
 
-        # ---- COLOR DETECTION (HSV) ----
+        # ---- COLOR DETECTION ----
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-        # Fire-like colors (tweak if needed)
-        lower1 = np.array([0, 120, 150])     # red/orange
+        lower1 = np.array([0, 120, 150])
         upper1 = np.array([35, 255, 255])
 
-        lower2 = np.array([160, 120, 150])   # deep red
+        lower2 = np.array([160, 120, 150])
         upper2 = np.array([179, 255, 255])
 
         mask1 = cv2.inRange(hsv, lower1, upper1)
@@ -29,12 +28,12 @@ class FireDetector:
 
         fire_mask = cv2.bitwise_or(mask1, mask2)
 
-        # ---- FLICKER DETECTION ----
+        # ---- FLICKER ----
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         if self.prev_gray is None:
             self.prev_gray = gray
-            return 0, 0
+            return 0, 0, display
 
         diff = cv2.absdiff(self.prev_gray, gray)
         self.prev_gray = gray
@@ -44,17 +43,34 @@ class FireDetector:
         # ---- COMBINE ----
         combined = cv2.bitwise_and(fire_mask, motion_mask)
 
-        fire_pixels = np.sum(combined > 0)
-        total_pixels = combined.size
+        # ---- FIND BOUNDING BOX ----
+        contours, _ = cv2.findContours(combined, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-        ratio = fire_pixels / total_pixels
+        fire_flag = 0
+        confidence = 0
 
-        # ---- DECISION ----
-        if ratio > 0.02:   # threshold (tune this)
-            fire_flag = 1
-        else:
-            fire_flag = 0
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
 
-        confidence = min(int(ratio * 5000), 100)
+            if area > 300:  # filter noise
+                x, y, w, h = cv2.boundingRect(cnt)
 
-        return fire_flag, confidence
+                # draw box
+                cv2.rectangle(display, (x, y), (x+w, y+h), (0, 0, 255), 2)
+
+                fire_flag = 1
+                confidence = min(int(area / 50), 100)
+
+        # ---- SHOW WINDOW ----
+        cv2.imshow("Fire Detection", display)
+
+        # press q to quit window
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            return 0, 0, display
+
+        return fire_flag, confidence, display
+
+    def cleanup(self):
+        if self.cap.isOpened():
+            self.cap.release()
+        cv2.destroyAllWindows()

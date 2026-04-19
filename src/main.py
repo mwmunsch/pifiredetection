@@ -9,18 +9,37 @@ from logger.logger_wrap import Logger
 print("[INFO] Starting system...")
 
 fire_detector = FireDetector()
-gps = GPSReader()
+
+#added this because if gps fails whole program will fail
+try:
+    gps = GPSReader()
+except:
+    print("[WARN] GPS initialization failed, using dummy data")
+    gps = None
+
 stm = STM32Reader()
 logger = Logger()
 
 while True:
     try:
         # ---- FIRE DETECTION ----
-        fire_flag, confidence = fire_detector.detect()
+        fire_flag, confidence, display = fire_detector.detect()
 
         # ---- GPS ----
-        gps_data = gps.get_position()
+        if gps:
+            gps_data = gps.get_position()
+        else:
+            gps_data = {"lat": 0.0, "lon": 0.0, "alt": 0.0}
 
+        if fire_flag == 1 and gps:
+            gps.send_fire_alert(gps_data["lat"], gps_data["lon"], confidence)
+
+        if fire_flag == 1 and gps and gps_data:
+            gps.send_fire_alert(
+                gps_data.get("lat", 0.0),
+                gps_data.get("lon", 0.0),
+                confidence
+            )
         # ---- STM32 SENSOR DATA ----
         stm_data = stm.get_data()
 
@@ -51,6 +70,9 @@ while True:
 
     except KeyboardInterrupt:
         print("\n[INFO] Stopping system")
+
+        fire_detector.cleanup()
+
         break
 
     except Exception as e:
