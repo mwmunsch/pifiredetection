@@ -1,81 +1,60 @@
 import cv2
 import numpy as np
-import os
-
 
 class FireDetector:
     def __init__(self):
-        # Get base directory (pifiredetection/)
-        BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        self.cap = cv2.VideoCapture(0)  # Pi camera
+        self.prev_gray = None
 
-        cfg_path = os.path.join(BASE_DIR, "fire.cfg")
-        weights_path = os.path.join(BASE_DIR, "fire.weights")
-        names_path = os.path.join(BASE_DIR, "fire.names")
+    def detect(self):
+        ret, frame = self.cap.read()
+        if not ret:
+            return 0, 0
 
-        print("[INFO] Loading model...")
-        self.net = cv2.dnn.readNet(weights_path, cfg_path)
+        # Resize for speed
+        frame = cv2.resize(frame, (320, 240))
 
-        with open(names_path, "r") as f:
-            self.classes = [line.strip() for line in f.readlines()]
+        # ---- COLOR DETECTION (HSV) ----
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-        layer_names = self.net.getLayerNames()
-        self.output_layers = [layer_names[i - 1] for i in self.net.getUnconnectedOutLayers()]
+        # Fire-like colors (tweak if needed)
+        lower1 = np.array([0, 120, 150])     # red/orange
+        upper1 = np.array([35, 255, 255])
 
-        print("[INFO] Fire detector ready")
+        lower2 = np.array([160, 120, 150])   # deep red
+        upper2 = np.array([179, 255, 255])
 
-    def detect(self, frame):
-        height, width, _ = frame.shape
+        mask1 = cv2.inRange(hsv, lower1, upper1)
+        mask2 = cv2.inRange(hsv, lower2, upper2)
 
-        # Prepare image
-        blob = cv2.dnn.blobFromImage(frame, 1/255.0, (416, 416),
-                                     swapRB=True, crop=False)
-        self.net.setInput(blob)
+        fire_mask = cv2.bitwise_or(mask1, mask2)
 
-        outputs = self.net.forward(self.output_layers)
+        # ---- FLICKER DETECTION ----
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        boxes = []
-        confidences = []
-        class_ids = []
+        if self.prev_gray is None:
+            self.prev_gray = gray
+            return 0, 0
 
-        # Process detections
-        for output in outputs:
-            for detection in output:
-                scores = detection[5:]
-                class_id = np.argmax(scores)
-                confidence = scores[class_id]
+        diff = cv2.absdiff(self.prev_gray, gray)
+        self.prev_gray = gray
 
-                if confidence > 0.4:
-                    center_x = int(detection[0] * width)
-                    center_y = int(detection[1] * height)
-                    w = int(detection[2] * width)
-                    h = int(detection[3] * height)
+        _, motion_mask = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
 
-                    x = int(center_x - w / 2)
-                    y = int(center_y - h / 2)
+        # ---- COMBINE ----
+        combined = cv2.bitwise_and(fire_mask, motion_mask)
 
-                    boxes.append([x, y, w, h])
-                    confidences.append(float(confidence))
-                    class_ids.append(class_id)
+        fire_pixels = np.sum(combined > 0)
+        total_pixels = combined.size
 
-        indexes = cv2.dnn.NMSBoxes(boxes, confidences, 0.4, 0.3)
+        ratio = fire_pixels / total_pixels
 
-        detections = []
+        # ---- DECISION ----
+        if ratio > 0.02:   # threshold (tune this)
+            fire_flag = 1
+        else:
+            fire_flag = 0
 
-        for i in range(len(boxes)):
-            if i in indexes:
-                x, y, w, h = boxes[i]
-                confidence = confidences[i]
+        confidence = min(int(ratio * 5000), 100)
 
-                detections.append({
-                    "box": (x, y, w, h),
-                    "confidence": confidence
-                })
-
-                # Draw box
-                cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 0, 255), 2)
-                cv2.putText(frame, f"Fire: {confidence:.2f}",
-                            (x, y - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            0.5, (0, 0, 255), 2)
-
-        return frame, detections
+        return fire_flag, confidence

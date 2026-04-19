@@ -9,7 +9,7 @@ class GPSReader:
         self.master.wait_heartbeat()
         print("[INFO] Connected to Pixhawk")
 
-    def get_data(self):
+    def get_position(self):
         msg = self.master.recv_match(type='GLOBAL_POSITION_INT', blocking=False)
 
         if msg is None:

@@ -6,10 +6,8 @@ class Logger:
     def __init__(self):
         os.makedirs("logs", exist_ok=True)
 
-        self.filename = f"logs/sensor_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        print("[INFO] Logging to", self.filename)
-
-        self.file = open(self.filename, "w", newline="")
+        filename = f"logs/sensor_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        self.file = open(filename, "w", newline="")
         self.writer = csv.writer(self.file)
 
         self.writer.writerow([
@@ -30,11 +28,11 @@ class Logger:
     def log(self, data):
         self.writer.writerow([
             data.get("system_time"),
-            data.get("gas"),
-            data.get("pm1"),
-            data.get("pm25"),
+            data.get("gas_resistance_raw"),
+            data.get("pm1_0"),
+            data.get("pm2_5"),
             data.get("pm10"),
-            data.get("air_status"),
+            data.get("air_quality_status"),
             data.get("gas_status"),
             data.get("fire_flag"),
             data.get("confidence"),
