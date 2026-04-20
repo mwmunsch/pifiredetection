@@ -1,17 +1,26 @@
 import cv2
 import numpy as np
+from picamera2 import Picamera2
 
 class FireDetector:
     def __init__(self):
-        # using imx500
-        self.cap = cv2.VideoCapture("libcamera ! video/x-raw, width=320, height=240, framerate=30/1 ! videoconvert ! appsink", cv2.CAP_GSTREAMER)
+        # Initialize Picamera2
+        self.picam2 = Picamera2()
+        config = self.picam2.create_preview_configuration(
+            main={"size": (320, 240)}
+        )
+        self.picam2.configure(config)
+        self.picam2.start()
+
+        self.prev_gray = None
 
     def detect(self):
-        ret, frame = self.cap.read()
-        if not ret:
+        # Capture frame from camera
+        frame = self.picam2.capture_array()
+
+        if frame is None:
             return 0, 0, None
 
-        frame = cv2.resize(frame, (320, 240))
         display = frame.copy()
 
         # ---- COLOR DETECTION ----
@@ -28,7 +37,7 @@ class FireDetector:
 
         fire_mask = cv2.bitwise_or(mask1, mask2)
 
-        # ---- FLICKER ----
+        # ---- FLICKER DETECTION ----
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         if self.prev_gray is None:
@@ -56,7 +65,7 @@ class FireDetector:
                 x, y, w, h = cv2.boundingRect(cnt)
 
                 # draw box
-                cv2.rectangle(display, (x, y), (x+w, y+h), (0, 0, 255), 2)
+                cv2.rectangle(display, (x, y), (x + w, y + h), (0, 0, 255), 2)
 
                 fire_flag = 1
                 confidence = min(int(area / 50), 100)
@@ -64,13 +73,30 @@ class FireDetector:
         # ---- SHOW WINDOW ----
         cv2.imshow("Fire Detection", display)
 
-        # press q to quit window
+        # press q to quit
         if cv2.waitKey(1) & 0xFF == ord('q'):
             return 0, 0, display
 
         return fire_flag, confidence, display
 
     def cleanup(self):
-        if self.cap.isOpened():
-            self.cap.release()
+        self.picam2.stop()
         cv2.destroyAllWindows()
+
+
+# ---- MAIN RUN LOOP ----
+if __name__ == "__main__":
+    detector = FireDetector()
+
+    try:
+        while True:
+            fire_flag, confidence, frame = detector.detect()
+
+            if fire_flag == 1:
+                print(f"[ALERT] Fire detected! Confidence: {confidence}%")
+
+    except KeyboardInterrupt:
+        print("\n[INFO] Stopping...")
+
+    finally:
+        detector.cleanup()

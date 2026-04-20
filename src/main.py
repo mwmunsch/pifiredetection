@@ -10,38 +10,52 @@ print("[INFO] Starting system...")
 
 fire_detector = FireDetector()
 
-#added this because if gps fails whole program will fail
+# Try to initialize GPS, but continue even if it fails
 try:
     gps = GPSReader()
-except:
-    print("[WARN] GPS initialization failed, using dummy data")
+    print("[INFO] GPS initialized")
+except Exception as e:
+    print("[WARN] GPS initialization failed:", e)
     gps = None
 
 stm = STM32Reader()
 logger = Logger()
 
-while True:
-    try:
+try:
+    while True:
         # ---- FIRE DETECTION ----
         fire_flag, confidence, display = fire_detector.detect()
 
         # ---- GPS ----
+        gps_data = {"lat": 0.0, "lon": 0.0, "alt": 0.0}
+
         if gps:
-            gps_data = gps.get_position()
-        else:
-            gps_data = {"lat": 0.0, "lon": 0.0, "alt": 0.0}
+            try:
+                data = gps.get_position()
+                if data:
+                    gps_data = data
+            except Exception as e:
+                print("[WARN] GPS read failed:", e)
 
+        # ---- SEND ALERT (ONLY ONCE) ----
         if fire_flag == 1 and gps:
-            gps.send_fire_alert(gps_data["lat"], gps_data["lon"], confidence)
+            try:
+                gps.send_fire_alert(
+                    gps_data.get("lat", 0.0),
+                    gps_data.get("lon", 0.0),
+                    confidence
+                )
+            except Exception as e:
+                print("[WARN] Failed to send fire alert:", e)
 
-        if fire_flag == 1 and gps and gps_data:
-            gps.send_fire_alert(
-                gps_data.get("lat", 0.0),
-                gps_data.get("lon", 0.0),
-                confidence
-            )
         # ---- STM32 SENSOR DATA ----
-        stm_data = stm.get_data()
+        try:
+            stm_data = stm.get_data()
+            if stm_data is None:
+                stm_data = {}
+        except Exception as e:
+            print("[WARN] STM read failed:", e)
+            stm_data = {}
 
         # ---- BUILD DATA PACKET ----
         log_data = {
@@ -62,19 +76,16 @@ while True:
             "alt": gps_data.get("alt")
         }
 
+        # ---- LOG ----
         logger.log(log_data)
 
         print("[DATA]", log_data)
 
-        time.sleep(1)
+        # small delay so CPU + camera stay stable
+        time.sleep(0.5)
 
-    except KeyboardInterrupt:
-        print("\n[INFO] Stopping system")
+except KeyboardInterrupt:
+    print("\n[INFO] Stopping system")
 
-        fire_detector.cleanup()
-
-        break
-
-    except Exception as e:
-        print("[ERROR]", e)
-        time.sleep(1)
+finally:
+    fire_detector.cleanup()

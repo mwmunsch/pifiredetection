@@ -5,11 +5,11 @@ class GPSReader:
     def __init__(self):
         print("[INFO] Connecting to Pixhawk...")
 
-        self.master = mavutil.mavlink_connection('/dev/ttyAMA2', baud=57600)
+        self.master = mavutil.mavlink_connection('/dev/ttyAMA2', baud=921600)
 
         print("[INFO] Waiting for heartbeat...")
         self.master.wait_heartbeat()
-        print("[INFO] Connected to Pixhawk")
+        print("[INFO] Connected to Pixdhawk")
 
         # store last known GPS values
         self.last_data = {
