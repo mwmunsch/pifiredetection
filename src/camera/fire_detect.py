@@ -1,34 +1,17 @@
 import cv2
 import numpy as np
-import time
-import os
-from picamera2 import Picamera2
 
 class FireDetector:
     def __init__(self):
-        # Initialize camera
-        self.picam2 = Picamera2()
-        config = self.picam2.create_preview_configuration(
-            main={"size": (320, 240)}
-        )
-        self.picam2.configure(config)
-        self.picam2.start()
-
-        self.prev_gray = None
-
-        # Create folder for images
-        os.makedirs("fire_images", exist_ok=True)
-
-        # Cooldown for saving images
-        self.last_save_time = 0
-        self.SAVE_COOLDOWN = 5  # seconds
+        # using imx500
+        self.cap = cv2.VideoCapture("libcamera ! video/x-raw, width=320, height=240, framerate=30/1 ! videoconvert ! appsink", cv2.CAP_GSTREAMER)
 
     def detect(self):
-        frame = self.picam2.capture_array()
-
-        if frame is None:
+        ret, frame = self.cap.read()
+        if not ret:
             return 0, 0, None
 
+        frame = cv2.resize(frame, (320, 240))
         display = frame.copy()
 
         # ---- COLOR DETECTION ----
@@ -45,7 +28,7 @@ class FireDetector:
 
         fire_mask = cv2.bitwise_or(mask1, mask2)
 
-        # ---- FLICKER DETECTION ----
+        # ---- FLICKER ----
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         if self.prev_gray is None:
@@ -69,46 +52,25 @@ class FireDetector:
         for cnt in contours:
             area = cv2.contourArea(cnt)
 
-            if area > 300:
+            if area > 300:  # filter noise
                 x, y, w, h = cv2.boundingRect(cnt)
 
-                cv2.rectangle(display, (x, y), (x + w, y + h), (0, 0, 255), 2)
+                # draw box
+                cv2.rectangle(display, (x, y), (x+w, y+h), (0, 0, 255), 2)
 
                 fire_flag = 1
                 confidence = min(int(area / 50), 100)
 
-        # ---- SAVE IMAGE IF FIRE DETECTED ----
-        current_time = time.time()
+        # ---- SHOW WINDOW ----
+        cv2.imshow("Fire Detection", display)
 
-        if fire_flag == 1 and (current_time - self.last_save_time > self.SAVE_COOLDOWN):
-            filename = f"fire_images/fire_{int(current_time)}.jpg"
-            cv2.imwrite(filename, display)
-            print(f"[ALERT] Fire detected! Saved: {filename} | Confidence: {confidence}%")
-
-            self.last_save_time = current_time
+        # press q to quit window
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            return 0, 0, display
 
         return fire_flag, confidence, display
 
     def cleanup(self):
-        self.picam2.stop()
+        if self.cap.isOpened():
+            self.cap.release()
         cv2.destroyAllWindows()
-
-
-# ---- MAIN RUN LOOP ----
-if __name__ == "__main__":
-    detector = FireDetector()
-
-    try:
-        while True:
-            fire_flag, confidence, frame = detector.detect()
-
-            # Optional debug print
-            print(f"[DEBUG] Fire: {fire_flag}, Confidence: {confidence}")
-
-            time.sleep(0.2)  # keeps CPU stable
-
-    except KeyboardInterrupt:
-        print("\n[INFO] Stopping...")
-
-    finally:
-        detector.cleanup()
