@@ -1,10 +1,12 @@
 import cv2
 import numpy as np
+import time
+import os
 from picamera2 import Picamera2
 
 class FireDetector:
     def __init__(self):
-        # Initialize Picamera2
+        # Initialize camera
         self.picam2 = Picamera2()
         config = self.picam2.create_preview_configuration(
             main={"size": (320, 240)}
@@ -14,8 +16,14 @@ class FireDetector:
 
         self.prev_gray = None
 
+        # Create folder for images
+        os.makedirs("fire_images", exist_ok=True)
+
+        # Cooldown for saving images
+        self.last_save_time = 0
+        self.SAVE_COOLDOWN = 5  # seconds
+
     def detect(self):
-        # Capture frame from camera
         frame = self.picam2.capture_array()
 
         if frame is None:
@@ -61,21 +69,23 @@ class FireDetector:
         for cnt in contours:
             area = cv2.contourArea(cnt)
 
-            if area > 300:  # filter noise
+            if area > 300:
                 x, y, w, h = cv2.boundingRect(cnt)
 
-                # draw box
                 cv2.rectangle(display, (x, y), (x + w, y + h), (0, 0, 255), 2)
 
                 fire_flag = 1
                 confidence = min(int(area / 50), 100)
 
-        # ---- SHOW WINDOW ----
-        cv2.imshow("Fire Detection", display)
+        # ---- SAVE IMAGE IF FIRE DETECTED ----
+        current_time = time.time()
 
-        # press q to quit
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            return 0, 0, display
+        if fire_flag == 1 and (current_time - self.last_save_time > self.SAVE_COOLDOWN):
+            filename = f"fire_images/fire_{int(current_time)}.jpg"
+            cv2.imwrite(filename, display)
+            print(f"[ALERT] Fire detected! Saved: {filename} | Confidence: {confidence}%")
+
+            self.last_save_time = current_time
 
         return fire_flag, confidence, display
 
@@ -92,8 +102,10 @@ if __name__ == "__main__":
         while True:
             fire_flag, confidence, frame = detector.detect()
 
-            if fire_flag == 1:
-                print(f"[ALERT] Fire detected! Confidence: {confidence}%")
+            # Optional debug print
+            print(f"[DEBUG] Fire: {fire_flag}, Confidence: {confidence}")
+
+            time.sleep(0.2)  # keeps CPU stable
 
     except KeyboardInterrupt:
         print("\n[INFO] Stopping...")

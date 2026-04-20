@@ -10,7 +10,6 @@ print("[INFO] Starting system...")
 
 fire_detector = FireDetector()
 
-# Try to initialize GPS, but continue even if it fails
 try:
     gps = GPSReader()
     print("[INFO] GPS initialized")
@@ -21,10 +20,29 @@ except Exception as e:
 stm = STM32Reader()
 logger = Logger()
 
+# ---- FIRE STATE TRACKING ----
+last_fire_state = 0
+last_alert_time = 0
+ALERT_COOLDOWN = 5  # seconds
+
+# ---- FIRE PERSISTENCE ----
+fire_counter = 0
+FIRE_THRESHOLD = 3  # consecutive frames required
+
 try:
     while True:
         # ---- FIRE DETECTION ----
         fire_flag, confidence, display = fire_detector.detect()
+
+        # ---- FIRE PERSISTENCE LOGIC ----
+        if fire_flag == 1:
+            fire_counter += 1
+        else:
+            fire_counter = 0
+
+        confirmed_fire = fire_counter >= FIRE_THRESHOLD
+
+        print(f"[DEBUG] raw={fire_flag} counter={fire_counter} confirmed={confirmed_fire}")
 
         # ---- GPS ----
         gps_data = {"lat": 0.0, "lon": 0.0, "alt": 0.0}
@@ -37,16 +55,26 @@ try:
             except Exception as e:
                 print("[WARN] GPS read failed:", e)
 
-        # ---- SEND ALERT (ONLY ONCE) ----
-        if fire_flag == 1 and gps:
-            try:
-                gps.send_fire_alert(
-                    gps_data.get("lat", 0.0),
-                    gps_data.get("lon", 0.0),
-                    confidence
-                )
-            except Exception as e:
-                print("[WARN] Failed to send fire alert:", e)
+        # ---- SEND ALERT (ONLY ON CONFIRMED FIRE) ----
+        current_time = time.time()
+
+        if confirmed_fire:
+            if (last_fire_state == 0) or (current_time - last_alert_time > ALERT_COOLDOWN):
+                if gps:
+                    try:
+                        gps.send_fire_alert(
+                            gps_data.get("lat", 0.0),
+                            gps_data.get("lon", 0.0),
+                            confidence
+                        )
+                        print("[ALERT] Fire alert sent")
+                    except Exception as e:
+                        print("[WARN] Failed to send fire alert:", e)
+
+                last_alert_time = current_time
+
+        
+        last_fire_state = confirmed_fire
 
         # ---- STM32 SENSOR DATA ----
         try:
@@ -68,7 +96,9 @@ try:
             "air_quality_status": stm_data.get("air_quality_status"),
             "gas_status": stm_data.get("gas_status"),
 
+            # LOG BOTH RAW + CONFIRMED (VERY useful)
             "fire_flag": fire_flag,
+            "confirmed_fire": int(confirmed_fire),
             "confidence": confidence,
 
             "lat": gps_data.get("lat"),
@@ -81,7 +111,6 @@ try:
 
         print("[DATA]", log_data)
 
-        # small delay so CPU + camera stay stable
         time.sleep(0.5)
 
 except KeyboardInterrupt:
